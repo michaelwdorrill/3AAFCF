@@ -127,6 +127,32 @@
       50%      { opacity: 1; }
     }
 
+    /* Shown if the browser blocks unmuted autoplay and we had to fall back
+       to a muted play, so the viewer knows to tap for sound. */
+    #unmute-banner {
+      position: fixed;
+      left: 50%;
+      bottom: 6vh;
+      transform: translateX(-50%);
+      display: none;
+      align-items: center;
+      gap: 0.8em;
+      padding: 0.9em 1.4em;
+      border: 1px solid rgba(232, 230, 224, 0.35);
+      background: rgba(0, 0, 0, 0.55);
+      backdrop-filter: blur(2px);
+      font-family: var(--skyrim-font);
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      font-size: clamp(0.7rem, 2vw, 0.95rem);
+      color: #f2efe6;
+      cursor: pointer;
+      z-index: 15;
+      animation: fade 2.2s ease-in-out infinite;
+    }
+
+    #unmute-banner.show { display: flex; }
+
     /* Loading / redirect message shown after the trailer finishes */
     #outro {
       position: fixed;
@@ -175,16 +201,23 @@
     <div class="outro-text">Loading&hellip;</div>
   </div>
 
+  <!-- Fallback prompt if the browser blocked unmuted autoplay -->
+  <div id="unmute-banner" role="button" tabindex="0" aria-label="Tap to unmute">
+    <span aria-hidden="true">🔇</span>
+    <span>Tap to unmute</span>
+  </div>
+
   <script>
     // The destination the viewer is sent to when the trailer finishes.
     // Placeholder for now — replace with the real event link when ready.
     var REDIRECT_URL = "https://partiful.com/e/cFadVDtIjiAh00iKc36j";
 
-    var overlay = document.getElementById("overlay");
-    var outro   = document.getElementById("outro");
-    var video   = document.getElementById("trailer");
+    var overlay       = document.getElementById("overlay");
+    var outro         = document.getElementById("outro");
+    var video         = document.getElementById("trailer");
+    var unmuteBanner  = document.getElementById("unmute-banner");
 
-    var started  = false;
+    var started    = false;
     var redirected = false;
 
     function goToEvent() {
@@ -194,22 +227,41 @@
       window.location.href = REDIRECT_URL;
     }
 
+    function unmute() {
+      video.muted = false;
+      video.volume = 1.0;
+      unmuteBanner.classList.remove("show");
+    }
+
     function startTrailer() {
       if (started) return;
       started = true;
 
       overlay.classList.add("hidden");
 
-      // Ensure audio is on (we required a user gesture, so this is allowed).
+      // Ensure audio is on (we required a user gesture, so this is allowed
+      // on most browsers).
       video.muted = false;
       video.volume = 1.0;
 
       var playPromise = video.play();
       if (playPromise && typeof playPromise.catch === "function") {
         playPromise.catch(function () {
-          // If playback is blocked for any reason, fall back to the redirect
-          // so the viewer is never left staring at a black screen.
-          goToEvent();
+          // Some mobile browsers still block unmuted autoplay even after a
+          // gesture. Fall back to a muted play so the trailer still runs,
+          // and prompt the viewer to tap for sound instead of bouncing
+          // them straight to the redirect.
+          video.muted = true;
+          video.volume = 0;
+          var mutedPlayPromise = video.play();
+          if (mutedPlayPromise && typeof mutedPlayPromise.catch === "function") {
+            mutedPlayPromise.catch(function () {
+              // Truly can't play at all - don't trap the viewer on a
+              // black screen.
+              goToEvent();
+            });
+          }
+          unmuteBanner.classList.add("show");
         });
       }
     }
@@ -224,10 +276,17 @@
       }
     });
 
+    // Let the viewer tap the video itself, or the banner, to unmute.
+    unmuteBanner.addEventListener("click", unmute);
+    video.addEventListener("click", function () {
+      if (started && video.muted) unmute();
+    });
+
     // When the trailer finishes, send them to the event page.
     video.addEventListener("ended", goToEvent);
 
-    // Safety net: if the video errors out, don't trap the viewer.
+    // Safety net: if the video errors out after starting, don't trap the
+    // viewer on a black screen.
     video.addEventListener("error", function () {
       if (started) goToEvent();
     });
