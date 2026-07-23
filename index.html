@@ -168,6 +168,41 @@
 
     #outro.show { display: flex; }
 
+    /* Temporary on-screen diagnostics panel for debugging mobile playback.
+       Remove once the mobile issue is confirmed fixed. */
+    #debug {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      display: none;
+      z-index: 30;
+      background: rgba(20, 0, 0, 0.9);
+      color: #ffb4b4;
+      font-family: monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      padding: 10px 12px;
+      max-height: 40vh;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    #debug.show { display: block; }
+
+    #debug button {
+      margin-top: 8px;
+      font-family: var(--skyrim-font);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      background: #400;
+      color: #fff;
+      border: 1px solid #ffb4b4;
+      padding: 6px 12px;
+      cursor: pointer;
+    }
+
     .outro-text {
       font-family: var(--skyrim-font);
       font-weight: 600;
@@ -207,6 +242,11 @@
     <span>Tap to unmute</span>
   </div>
 
+  <!-- Temporary diagnostics panel: shows what actually happened instead of
+       silently redirecting, so we can see the real error on mobile.
+       Remove once the mobile issue is confirmed fixed. -->
+  <div id="debug"></div>
+
   <script>
     // The destination the viewer is sent to when the trailer finishes.
     // Placeholder for now — replace with the real event link when ready.
@@ -217,6 +257,8 @@
     var video         = document.getElementById("trailer");
     var unmuteBanner  = document.getElementById("unmute-banner");
 
+    var debugPanel = document.getElementById("debug");
+
     var started    = false;
     var redirected = false;
 
@@ -225,6 +267,31 @@
       redirected = true;
       outro.classList.add("show");
       window.location.href = REDIRECT_URL;
+    }
+
+    // TEMPORARY: shows what actually went wrong instead of silently
+    // redirecting, with a manual continue link and an 8s auto-continue
+    // so the flow still resolves for real guests. Remove once the mobile
+    // issue is confirmed fixed.
+    function showDebugAndContinue(label, detail) {
+      var lines = [
+        "DEBUG (" + label + ")",
+        "UA: " + navigator.userAgent,
+        "readyState: " + video.readyState,
+        "networkState: " + video.networkState,
+        "currentSrc: " + video.currentSrc,
+        detail
+      ];
+      debugPanel.textContent = lines.join("\n");
+      debugPanel.classList.add("show");
+
+      var btn = document.createElement("button");
+      btn.textContent = "Continue to event";
+      btn.addEventListener("click", goToEvent);
+      debugPanel.appendChild(document.createElement("br"));
+      debugPanel.appendChild(btn);
+
+      window.setTimeout(goToEvent, 8000);
     }
 
     function unmute() {
@@ -246,7 +313,7 @@
 
       var playPromise = video.play();
       if (playPromise && typeof playPromise.catch === "function") {
-        playPromise.catch(function () {
+        playPromise.catch(function (err) {
           // Some mobile browsers still block unmuted autoplay even after a
           // gesture. Fall back to a muted play so the trailer still runs,
           // and prompt the viewer to tap for sound instead of bouncing
@@ -255,10 +322,11 @@
           video.volume = 0;
           var mutedPlayPromise = video.play();
           if (mutedPlayPromise && typeof mutedPlayPromise.catch === "function") {
-            mutedPlayPromise.catch(function () {
-              // Truly can't play at all - don't trap the viewer on a
-              // black screen.
-              goToEvent();
+            mutedPlayPromise.catch(function (err2) {
+              showDebugAndContinue(
+                "muted play() rejected",
+                "unmuted error: " + err + "\nmuted error: " + err2
+              );
             });
           }
           unmuteBanner.classList.add("show");
@@ -286,9 +354,14 @@
     video.addEventListener("ended", goToEvent);
 
     // Safety net: if the video errors out after starting, don't trap the
-    // viewer on a black screen.
+    // viewer on a black screen - but show what happened first.
     video.addEventListener("error", function () {
-      if (started) goToEvent();
+      if (!started) return;
+      var mediaError = video.error;
+      var detail = mediaError
+        ? "MediaError code: " + mediaError.code + " (" + mediaError.message + ")"
+        : "no MediaError object";
+      showDebugAndContinue("video error event", detail);
     });
   </script>
 </body>
