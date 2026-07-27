@@ -350,7 +350,15 @@
       if (started && video.muted) unmute();
     });
 
-    // When the trailer finishes, send them to the event page.
+    // Send them to the event page 5 seconds before the trailer actually
+    // ends, so the transition feels snappier. "ended" stays as a fallback
+    // in case duration is ever unavailable.
+    var EARLY_REDIRECT_SECONDS = 5;
+    video.addEventListener("timeupdate", function () {
+      if (!isFinite(video.duration)) return;
+      var earlyMark = Math.max(0, video.duration - EARLY_REDIRECT_SECONDS);
+      if (video.currentTime >= earlyMark) goToEvent();
+    });
     video.addEventListener("ended", goToEvent);
 
     // Safety net: if the video errors out after starting, don't trap the
